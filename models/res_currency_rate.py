@@ -1,5 +1,6 @@
 from odoo import models
 import requests
+import logging
 from datetime import date
 from bs4 import BeautifulSoup
 from odoo.exceptions import UserError
@@ -8,9 +9,12 @@ from odoo.exceptions import UserError
 class CurrencyRate(models.Model):
     _inherit = "res.currency.rate"
 
+    _logger = logging.getLogger(__name__)
+
     def fetch_arg_dollars(self):
         """Fetch and update Argentine dollar rates based on configuration."""
         today = date.today()
+        _logger.info("Fetch Start", f"Starting fetch_arg_dollars for {today}")
         config = self.env["ir.config_parameter"].sudo()
 
         # Mapping of 'casa' to currency codes
@@ -37,7 +41,7 @@ class CurrencyRate(models.Model):
                 response.raise_for_status()
                 rates_data = {item["casa"]: item for item in response.json()}
             except Exception as e:
-                self._log_error("API Fetch Error", str(e))
+                _logger.info("API Fetch Error", str(e))
                 return  # Stop if API fails, but continue for BNA if enabled
 
         # Process each enabled API rate
@@ -45,7 +49,7 @@ class CurrencyRate(models.Model):
             if config.get_param(f"dolares_arg.enable_{casa}", "False") == "True":
                 data = rates_data.get(casa)
                 if not data:
-                    self._log_error(
+                    self._logger.warning(
                         f"{casa.capitalize()} Data Missing",
                         "No data found in API response",
                     )
@@ -61,62 +65,66 @@ class CurrencyRate(models.Model):
                         rate_value = (buy + sell) / 2
                     else:
                         rate_value = sell
+                    _logger.info(
+                        f"{casa.capitalize()} Rate",
+                        f"Calculated rate_value: {rate_value}",
+                    )
                     self._update_rate(code, today, 1.0 / rate_value)
                 except Exception as e:
-                    self._log_error(f"{casa.capitalize()} Processing Error", str(e))
+                    _logger.info(f"{casa.capitalize()} Processing Error", str(e))
 
         # Process BNA if enabled
         if config.get_param("dolares_arg.enable_bna", "False") == "True":
-            self._log_error("BNA Process Start", f"Starting BNA fetch for {today}")
+            _logger.info("BNA Process Start", f"Starting BNA fetch for {today}")
             try:
                 bna_url = "https://www.bna.com.ar/Personas"
-                self._log_error("BNA Request", f"Sending request to {bna_url}")
+                _logger.info("BNA Request", f"Sending request to {bna_url}")
                 page = requests.get(bna_url, timeout=10)
-                self._log_error(
+                _logger.info(
                     "BNA Response", f"Received response with status {page.status_code}"
                 )
                 soup = BeautifulSoup(page.content, "html.parser")
-                self._log_error(
+                _logger.info(
                     "BNA Parsing", "Soup created, searching for billetes table"
                 )
                 results = soup.find(id="billetes")
                 if not results:
-                    self._log_error("BNA Error", "BNA table not found")
+                    _logger.info("BNA Error", "BNA table not found")
                     raise UserError("BNA table not found")
                 found = False
                 for tr in results.find_all("tr"):
                     tds = tr.find_all("td")
                     if len(tds) >= 3:
-                        self._log_error(
+                        self._logger.debug(
                             "BNA Row Check",
                             f"Found row with {len(tds)} columns: {tds[0].text.strip()}",
                         )
                         if tds[0].text.strip() == "Dolar U.S.A":
-                            self._log_error("BNA Match", "Found Dolar U.S.A row")
+                            _logger.info("BNA Match", "Found Dolar U.S.A row")
                             value_str = tds[2].text.strip()  # Venta
-                            self._log_error(
-                                "BNA Value", f"Raw value string: {value_str}"
-                            )
+                            _logger.info("BNA Value", f"Raw value string: {value_str}")
                             value = float(value_str.replace(",", "."))
                             if value == 0:
-                                self._log_error("BNA Error", "Invalid BNA value (zero)")
+                                _logger.info("BNA Error", "Invalid BNA value (zero)")
                                 raise ValueError("Invalid BNA value")
+                            _logger.info("BNA Rate", f"Calculated rate: {1.0 / value}")
                             self._update_rate("USBN", today, 1.0 / value)
                             found = True
-                            self._log_error(
+                            _logger.info(
                                 "BNA Success", f"Updated USBN rate with value {value}"
                             )
                             break
                 if not found:
-                    self._log_error(
-                        "BNA Error", "Dolar U.S.A row not found in BNA table"
-                    )
+                    _logger.info("BNA Error", "Dolar U.S.A row not found in BNA table")
                     raise UserError("Dolar U.S.A row not found in BNA table")
             except Exception as e:
-                self._log_error("BNA Exception", str(e))
+                _logger.info("BNA Exception", str(e))
 
     def _update_rate(self, currency_code, date, rate):
         """Update or create currency rate for the given code and date."""
+        _logger.info(
+            "Update Rate Start", f"Processing {currency_code} with rate {rate}"
+        )
         currency = self.env["res.currency"].search(
             [("name", "=", currency_code)], limit=1
         )
@@ -140,11 +148,18 @@ class CurrencyRate(models.Model):
                     "active": True,
                 }
             )
+            _logger.info(
+                "Currency Created",
+                f"Created {currency_code} with full_name {currency_full_names.get(currency_code)}",
+            )
         existing_rate = self.search(
             [("currency_id", "=", currency.id), ("name", "=", date)], limit=1
         )
         if existing_rate:
             existing_rate.write({"rate": rate})
+            _logger.info(
+                "Rate Updated", f"Updated {currency_code} rate to {rate} for {date}"
+            )
         else:
             self.create(
                 {
@@ -153,17 +168,7 @@ class CurrencyRate(models.Model):
                     "rate": rate,
                 }
             )
-
-    def _log_error(self, name, message):
-        """Log errors to ir.logging."""
-        self.env["ir.logging"].create(
-            {
-                "name": name,
-                "type": "server",
-                "level": "ERROR",
-                "message": message,
-                "path": __file__,
-                "func": "fetch_arg_dollars",
-                "line": 0,
-            }
-        )
+            _logger.info(
+                "Rate Created",
+                f"Created new rate for {currency_code} with value {rate} on {date}",
+            )
