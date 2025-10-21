@@ -95,11 +95,23 @@ class CurrencyRate(models.Model):
         currency = self.env["res.currency"].search(
             [("name", "=", currency_code)], limit=1
         )
+        # Mapping of currency codes to full names
+        currency_full_names = {
+            "USO": "Dolar Oficial",
+            "USB": "United States Dollar Blue",
+            "USL": "Dolar Bolsa (MEP)",
+            "USC": "Dolar Contado con Liqui (CCL)",
+            "USM": "Dolar Mayorista",
+            "USCR": "Dolar Cripto",
+            "UST": "Dolar Tarjeta",
+            "USBN": "Dolar Banco Nación (BNA)",
+        }
         if not currency:
             currency = self.env["res.currency"].create(
                 {
                     "name": currency_code,
-                    "symbol": "$",
+                    "symbol": currency_code,  # Set symbol to the 3-letter code
+                    "full_name": currency_full_names.get(currency_code, currency_code),
                     "active": True,
                 }
             )
