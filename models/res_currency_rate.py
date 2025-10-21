@@ -12,10 +12,12 @@ class CurrencyRate(models.Model):
 
     _logger = logging.getLogger(__name__)
 
-    def fetch_arg_dollars(self):
-        """Fetch and update Argentine dollar rates based on configuration."""
+    def fetch_arg_dollars(self, company_id=None):
+        """Fetch and update Argentine dollar rates based on configuration. If company_id is provided, rates are company-specific; otherwise, global."""
         today = date.today()
-        self._logger.info(f"Fetch Start: Starting fetch_arg_dollars for {today}")
+        self._logger.info(
+            f"Fetch Start: Starting fetch_arg_dollars for {today} (company_id: {company_id or 'Global'})"
+        )
         config = self.env["ir.config_parameter"].sudo()
 
         # Mapping of 'casa' to currency codes
@@ -67,7 +69,9 @@ class CurrencyRate(models.Model):
                     self._logger.info(
                         f"{casa.capitalize()} Rate: Calculated rate_value: {rate_value}"
                     )
-                    self._update_rate(code, today, 1.0 / rate_value)
+                    self._update_rate(
+                        code, today, 1.0 / rate_value, company_id=company_id
+                    )
                 except Exception as e:
                     self._logger.error(
                         f"{casa.capitalize()} Processing Error: {str(e)}"
@@ -122,7 +126,9 @@ class CurrencyRate(models.Model):
                             self._logger.info(
                                 f"BNA Rate: Calculated rate: {1.0 / value}"
                             )
-                            self._update_rate("USN", today, 1.0 / value)
+                            self._update_rate(
+                                "USN", today, 1.0 / value, company_id=company_id
+                            )
                             found = True
                             self._logger.info(
                                 f"BNA Success: Updated USN rate with value {value}"
@@ -136,7 +142,7 @@ class CurrencyRate(models.Model):
             except Exception as e:
                 self._logger.error(f"BNA Exception: {str(e)}")
 
-    def _update_rate(self, currency_code, date, rate):
+    def _update_rate(self, currency_code, date, rate, company_id=None):
         """Update or create currency rate for the given code and date."""
         self._logger.info(
             f"Update Rate Start: Processing {currency_code} with rate {rate}"
@@ -174,22 +180,28 @@ class CurrencyRate(models.Model):
                     f"Currency Create Error: Failed to create {currency_code}: {str(e)}"
                 )
                 return  # Salir si falla el create, sin intentar rate
+        vals = {
+            "currency_id": currency.id,
+            "name": date,
+            "rate": rate,
+        }
+        if company_id:
+            vals["company_id"] = company_id
         existing_rate = self.search(
-            [("currency_id", "=", currency.id), ("name", "=", date)], limit=1
+            [
+                ("currency_id", "=", currency.id),
+                ("name", "=", date),
+                ("company_id", "=", company_id or False),
+            ],
+            limit=1,
         )
         if existing_rate:
             existing_rate.write({"rate": rate})
             self._logger.info(
-                f"Rate Updated: Updated {currency_code} rate to {rate} for {date}"
+                f"Rate Updated: Updated {currency_code} rate to {rate} for {date} (company_id: {company_id or 'Global'})"
             )
         else:
-            self.create(
-                {
-                    "currency_id": currency.id,
-                    "name": date,
-                    "rate": rate,
-                }
-            )
+            self.create(vals)
             self._logger.info(
-                f"Rate Created: Created new rate for {currency_code} with value {rate} on {date}"
+                f"Rate Created: Created new rate for {currency_code} with value {rate} on {date} (company_id: {company_id or 'Global'})"
             )
