@@ -67,28 +67,53 @@ class CurrencyRate(models.Model):
 
         # Process BNA if enabled
         if config.get_param("dolares_arg.enable_bna", "False") == "True":
+            self._log_error("BNA Process Start", f"Starting BNA fetch for {today}")
             try:
                 bna_url = "https://www.bna.com.ar/Personas"
+                self._log_error("BNA Request", f"Sending request to {bna_url}")
                 page = requests.get(bna_url, timeout=10)
+                self._log_error(
+                    "BNA Response", f"Received response with status {page.status_code}"
+                )
                 soup = BeautifulSoup(page.content, "html.parser")
+                self._log_error(
+                    "BNA Parsing", "Soup created, searching for billetes table"
+                )
                 results = soup.find(id="billetes")
                 if not results:
+                    self._log_error("BNA Error", "BNA table not found")
                     raise UserError("BNA table not found")
                 found = False
                 for tr in results.find_all("tr"):
                     tds = tr.find_all("td")
-                    if len(tds) >= 3 and tds[0].text.strip() == "Dolar U.S.A":
-                        value_str = tds[2].text.strip()  # Venta
-                        value = float(value_str.replace(",", "."))
-                        if value == 0:
-                            raise ValueError("Invalid BNA value")
-                        self._update_rate("USBN", today, 1.0 / value)
-                        found = True
-                        break
+                    if len(tds) >= 3:
+                        self._log_error(
+                            "BNA Row Check",
+                            f"Found row with {len(tds)} columns: {tds[0].text.strip()}",
+                        )
+                        if tds[0].text.strip() == "Dolar U.S.A":
+                            self._log_error("BNA Match", "Found Dolar U.S.A row")
+                            value_str = tds[2].text.strip()  # Venta
+                            self._log_error(
+                                "BNA Value", f"Raw value string: {value_str}"
+                            )
+                            value = float(value_str.replace(",", "."))
+                            if value == 0:
+                                self._log_error("BNA Error", "Invalid BNA value (zero)")
+                                raise ValueError("Invalid BNA value")
+                            self._update_rate("USBN", today, 1.0 / value)
+                            found = True
+                            self._log_error(
+                                "BNA Success", f"Updated USBN rate with value {value}"
+                            )
+                            break
                 if not found:
+                    self._log_error(
+                        "BNA Error", "Dolar U.S.A row not found in BNA table"
+                    )
                     raise UserError("Dolar U.S.A row not found in BNA table")
             except Exception as e:
-                self._log_error("BNA Scraping Error", str(e))
+                self._log_error("BNA Exception", str(e))
 
     def _update_rate(self, currency_code, date, rate):
         """Update or create currency rate for the given code and date."""
@@ -110,7 +135,7 @@ class CurrencyRate(models.Model):
             currency = self.env["res.currency"].create(
                 {
                     "name": currency_code,
-                    "symbol": currency_code,  # Set symbol to the 3-letter code
+                    "symbol": currency_code,
                     "full_name": currency_full_names.get(currency_code, currency_code),
                     "active": True,
                 }
