@@ -74,14 +74,19 @@ class CurrencyRate(models.Model):
                 results = soup.find(id="billetes")
                 if not results:
                     raise UserError("BNA table not found")
-                tds = results.find_all("td", class_=False)
-                if len(tds) < 2:
-                    raise UserError("Invalid BNA table structure")
-                value_str = tds[1].text.strip()
-                value = float(value_str.replace(",", "."))
-                if value == 0:
-                    raise ValueError("Invalid BNA value")
-                self._update_rate("USBN", today, 1.0 / value)
+                found = False
+                for tr in results.find_all("tr"):
+                    tds = tr.find_all("td")
+                    if len(tds) >= 3 and tds[0].text.strip() == "Dolar U.S.A":
+                        value_str = tds[2].text.strip()  # Venta
+                        value = float(value_str.replace(",", "."))
+                        if value == 0:
+                            raise ValueError("Invalid BNA value")
+                        self._update_rate("USBN", today, 1.0 / value)
+                        found = True
+                        break
+                if not found:
+                    raise UserError("Dolar U.S.A row not found in BNA table")
             except Exception as e:
                 self._log_error("BNA Scraping Error", str(e))
 
@@ -95,7 +100,6 @@ class CurrencyRate(models.Model):
                 {
                     "name": currency_code,
                     "symbol": "$",
-                    "rate_type": "average",  # Optional, for reference
                     "active": True,
                 }
             )
@@ -122,6 +126,7 @@ class CurrencyRate(models.Model):
                 "level": "ERROR",
                 "message": message,
                 "path": __file__,
-                "line": "fetch_arg_dollars",
+                "func": "fetch_arg_dollars",
+                "line": 0,
             }
         )
