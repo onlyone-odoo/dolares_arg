@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_inherit_dolares_arg" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.dolares.arg</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('settings')]/div[hasclass('app_settings_block')][@data-key='account']" position="inside">
+                <h2>Dólares Argentina</h2>
+                <group string="Seleccione los tipos de dólares a actualizar automáticamente">
+                    <field name="enable_oficial" string="Oficial"/>
+                    <field name="enable_blue" string="Blue (promedio compra/venta)"/>
+                    <field name="enable_bolsa" string="Bolsa (MEP)"/>
+                    <field name="enable_contadoconliqui" string="Contado con Liqui (CCL)"/>
+                    <field name="enable_mayorista" string="Mayorista"/>
+                    <field name="enable_cripto" string="Cripto"/>
+                    <field name="enable_tarjeta" string="Tarjeta"/>
+                    <field name="enable_bna" string="BNA (Banco Nación, via scraping)"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>
