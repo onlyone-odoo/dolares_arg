@@ -25,7 +25,6 @@ class CurrencyRate(models.Model):
             "bolsa": "USL",
             "contadoconliqui": "USC",
             "mayorista": "USM",
-            "cripto": "USCR",
             "tarjeta": "UST",
         }
 
@@ -123,10 +122,10 @@ class CurrencyRate(models.Model):
                             self._logger.info(
                                 f"BNA Rate: Calculated rate: {1.0 / value}"
                             )
-                            self._update_rate("USBN", today, 1.0 / value)
+                            self._update_rate("USN", today, 1.0 / value)
                             found = True
                             self._logger.info(
-                                f"BNA Success: Updated USBN rate with value {value}"
+                                f"BNA Success: Updated USN rate with value {value}"
                             )
                             break
                 if not found:
@@ -152,22 +151,29 @@ class CurrencyRate(models.Model):
             "USL": "Dolar Bolsa (MEP)",
             "USC": "Dolar Contado con Liqui (CCL)",
             "USM": "Dolar Mayorista",
-            "USCR": "Dolar Cripto",
             "UST": "Dolar Tarjeta",
-            "USBN": "Dolar Banco Nación (BNA)",
+            "USN": "Dolar Banco Nación (BNA)",
         }
         if not currency:
-            currency = self.env["res.currency"].create(
-                {
-                    "name": currency_code,
-                    "symbol": currency_code,
-                    "full_name": currency_full_names.get(currency_code, currency_code),
-                    "active": True,
-                }
-            )
-            self._logger.info(
-                f"Currency Created: Created {currency_code} with full_name {currency_full_names.get(currency_code)}"
-            )
+            try:
+                currency = self.env["res.currency"].create(
+                    {
+                        "name": currency_code,
+                        "symbol": currency_code,
+                        "full_name": currency_full_names.get(
+                            currency_code, currency_code
+                        ),
+                        "active": True,
+                    }
+                )
+                self._logger.info(
+                    f"Currency Created: Created {currency_code} with full_name {currency_full_names.get(currency_code)}"
+                )
+            except Exception as e:
+                self._logger.error(
+                    f"Currency Create Error: Failed to create {currency_code}: {str(e)}"
+                )
+                return  # Salir si falla el create, sin intentar rate
         existing_rate = self.search(
             [("currency_id", "=", currency.id), ("name", "=", date)], limit=1
         )
