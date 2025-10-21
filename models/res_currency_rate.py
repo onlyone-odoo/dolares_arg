@@ -5,11 +5,11 @@ from datetime import date
 from bs4 import BeautifulSoup
 from odoo.exceptions import UserError
 
+_logger = logging.getLogger(__name__)
+
 
 class CurrencyRate(models.Model):
     _inherit = "res.currency.rate"
-
-    _logger = logging.getLogger(__name__)
 
     def fetch_arg_dollars(self):
         """Fetch and update Argentine dollar rates based on configuration."""
