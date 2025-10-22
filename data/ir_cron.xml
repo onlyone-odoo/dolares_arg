@@ -7,7 +7,6 @@
         <field name="code">model.fetch_arg_dollars(company_id=None)</field>
         <field name="interval_number">1</field>
         <field name="interval_type">days</field>
-        <field name="numbercall">-1</field>
         <field name="doall">False</field>
     </record>
 </odoo>
