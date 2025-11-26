@@ -6,7 +6,7 @@
     "website": "https://onlyone.odoo.com/",
     "license": "AGPL-3",
     "category": "Accounting",
-    "version": "18.0.1.1.1",
+    "version": "18.0.2.1.1",
     "development_status": "Production/Stable",
     "application": False,
     "installable": True,
@@ -19,4 +19,5 @@
         "views/res_config_settings_views.xml",
         "data/ir_cron.xml",
     ],
+    # version que pisa USD con el dato de BNA que en la rama 18.0 es USN
 }
