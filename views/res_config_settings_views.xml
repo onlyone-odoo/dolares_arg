@@ -5,19 +5,48 @@
         <field name="model">res.config.settings</field>
         <field name="inherit_id" ref="account.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//app[@name='account']/block[@name='main_currency_setting_container']" position="after">
-                <h2>Dólares Argentina</h2>
-                <group string="Seleccione los tipos de dólares a actualizar automáticamente">
-                    <field name="enable_oficial" string="Oficial"/>
-                    <field name="enable_blue" string="Blue (promedio compra/venta)"/>
-                    <field name="enable_bolsa" string="Bolsa (MEP)"/>
-                    <field name="enable_contadoconliqui" string="Contado con Liqui (CCL)"/>
-                    <field name="enable_mayorista" string="Mayorista"/>
-                    <field name="enable_cripto" string="Cripto"/>
-                    <field name="enable_tarjeta" string="Tarjeta"/>
-                    <field name="enable_bna" string="BNA (Banco Nación, via scraping)"/>
-                </group>
+            
+            <xpath expr="//block[@name='main_currency_setting_container']" position="after">
+                <block title="Dólares Argentina" id="dolares_arg_settings">
+                    <div class="text-muted">
+                        Seleccione los tipos de cambio a sincronizar automáticamente.
+                    </div>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="enable_bna"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="enable_bna"/>
+                                <div class="text-muted">
+                                    Extrae valor "Venta" de billetes del Banco Nación. Sobrescribe la moneda <b>USD</b> oficial.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">DolarAPI.com</span>
+                                <div class="text-muted mb-2">
+                                    Genera monedas adicionales (ej. USB, USO, USL).
+                                </div>
+                                <div class="content-group">
+                                    <div class="row">
+                                        <div class="col-6"><field name="enable_oficial" class="oe_inline"/> Oficial</div>
+                                        <div class="col-6"><field name="enable_blue" class="oe_inline"/> Blue</div>
+                                        <div class="col-6"><field name="enable_bolsa" class="oe_inline"/> MEP (Bolsa)</div>
+                                        <div class="col-6"><field name="enable_contadoconliqui" class="oe_inline"/> CCL</div>
+                                        <div class="col-6"><field name="enable_mayorista" class="oe_inline"/> Mayorista</div>
+                                        <div class="col-6"><field name="enable_cripto" class="oe_inline"/> Cripto</div>
+                                        <div class="col-6"><field name="enable_tarjeta" class="oe_inline"/> Tarjeta</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </block>
             </xpath>
+
         </field>
     </record>
 </odoo>

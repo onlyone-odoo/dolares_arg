@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <record id="cron_fetch_arg_dollars" model="ir.cron">
-        <field name="name">Fetch Argentine Dollars Rates</field>
-        <field name="model_id" ref="base.model_res_currency_rate"/>
-        <field name="state">code</field>
-        <field name="code">model.fetch_arg_dollars(company_id=None)</field>
-        <field name="interval_number">1</field>
-        <field name="interval_type">days</field>
-        <field name="numbercall">-1</field>
-        <field name="doall">False</field>
-    </record>
+    <data noupdate="1">
+        <record id="cron_fetch_arg_dollars" model="ir.cron">
+            <field name="name">Actualizar Dólares Argentina</field>
+            <field name="model_id" ref="base.model_res_currency_rate"/>
+            <field name="state">code</field>
+            <field name="code">model.fetch_arg_dollars()</field>
+            <field name="user_id" ref="base.user_root"/> <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="numbercall">-1</field>
+            <field name="doall" eval="False"/>
+            <field name="priority">5</field> </record>
+    </data>
 </odoo>
