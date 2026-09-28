@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-# models/currency_rate.py
 
-from odoo import models
-from odoo.exceptions import UserError
-
-import requests
 import logging
 from datetime import date
-from bs4 import BeautifulSoup
-import unicodedata
+
+import requests
+
+from odoo import models
+
+from .bna_parser import (
+    BNA_HOME_URL,
+    BNA_PERSONAS_URL,
+    BNA_REQUEST_HEADERS,
+    extract_bna_usd_sell,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -93,56 +97,42 @@ class CurrencyRate(models.Model):
         if config.get_param("dolares_arg.enable_bna", "False") == "True":
             _logger.info("BNA Process Start: Fetching from Banco Nación")
             try:
-                bna_url = "https://www.bna.com.ar/Personas"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/128.0 Safari/537.36"
-                }
-                response = requests.get(bna_url, timeout=15, headers=headers)
+                value = self._fetch_bna_usd_sell()
+                _logger.info(
+                    "BNA Success: Found USD sell rate %s → updating standard USD",
+                    value,
+                )
+                # USN is just a trigger → will be redirected to USD
+                self._update_rate("USN", today, 1.0 / value, company_id=company_id)
+            except Exception:
+                # Do not raise: a UserError here would rollback dolarapi updates
+                # and mark the cron as failed.
+                _logger.exception("BNA Exception: could not update USD from BNA")
+
+    def _fetch_bna_usd_sell(self):
+        """Download BNA HTML and return the USD bill sell rate.
+
+        Tries /Personas first, then the homepage if parsing fails.
+        """
+        last_error = None
+        for url in (BNA_PERSONAS_URL, BNA_HOME_URL):
+            try:
+                response = requests.get(
+                    url, timeout=30, headers=BNA_REQUEST_HEADERS
+                )
                 response.raise_for_status()
-
-                soup = BeautifulSoup(response.content, "html.parser")
-                table = soup.find(id="billetes")
-                if not table:
-                    raise UserError("BNA table not found (id='billetes')")
-
-                found = False
-                for tr in table.find_all("tr"):
-                    tds = tr.find_all("td")
-                    if len(tds) < 3:
-                        continue
-
-                    row_name = (
-                        unicodedata.normalize("NFKD", tds[0].get_text(strip=True))
-                        .encode("ascii", "ignore")
-                        .decode("utf-8")
-                        .lower()
-                    )
-
-                    if "dolar u.s.a" in row_name or "dólar u.s.a" in row_name:
-                        value_str = tds[2].get_text(strip=True)  # Venta
-                        value = float(value_str.replace(",", "."))
-                        if value <= 0:
-                            raise ValueError("Invalid BNA sell value")
-
-                        _logger.info(
-                            f"BNA Success: Found USD rate {value} → updating standard USD currency"
-                        )
-                        # USN is just a trigger → will be redirected to USD
-                        self._update_rate(
-                            "USN", today, 1.0 / value, company_id=company_id
-                        )
-                        found = True
-                        break
-
-                if not found:
-                    raise UserError("Dolar U.S.A row not found in BNA table")
-
-            except Exception as e:
-                _logger.error(f"BNA Exception: {str(e)}")
-                if isinstance(e, UserError):
-                    raise
+                html = response.text or ""
+                _logger.info(
+                    "BNA Response: %s status %s (%s bytes)",
+                    url,
+                    response.status_code,
+                    len(html),
+                )
+                return extract_bna_usd_sell(html)
+            except Exception as err:
+                last_error = err
+                _logger.warning("BNA fetch/parse failed for %s: %s", url, err)
+        raise last_error or ValueError("BNA USD sell rate not available")
 
     def _update_rate(self, currency_code, date_rate, rate, company_id=None):
         """
