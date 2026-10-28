@@ -1,3 +1,10 @@
+`17.0.6.0.0`
+-------------
+
+- Reparse the Banco Nación Personas page (bill table, Argentine amounts).
+- Overriding the standard USD currency is now a setting, off by default.
+  The rate is stored on USN unless that option is enabled.
+
 .. Examples
 .. `2.1.0`
 .. -------

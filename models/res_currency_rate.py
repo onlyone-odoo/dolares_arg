@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 import logging
+
 import requests
-import unicodedata
-from bs4 import BeautifulSoup
-from odoo import models, fields, _
-from odoo.exceptions import UserError
+
+from odoo import fields, models
+
+from .bna_parser import (
+    BNA_HOME_URL,
+    BNA_PERSONAS_URL,
+    BNA_REQUEST_HEADERS,
+    extract_bna_usd_sell,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -27,6 +33,7 @@ CURRENCY_NAMES = {
     "USM": "Dolar Mayorista",
     "USCR": "Dolar Cripto",
     "UST": "Dolar Tarjeta",
+    "USN": "Dolar Banco Nación (BNA)",
 }
 
 class ResCurrencyRate(models.Model):
@@ -36,7 +43,7 @@ class ResCurrencyRate(models.Model):
         """
         Orquesta la actualización de tipos de cambio:
         1. API DolarApi (Varios tipos)
-        2. BNA Scraping (Override del USD oficial)
+        2. BNA scraping (USN, or USD when the override setting is on)
         """
         # Usar context_today para respetar timezone de la compañía/usuario
         today = fields.Date.context_today(self)
@@ -97,49 +104,48 @@ class ResCurrencyRate(models.Model):
         except Exception as e:
             _logger.error(f"API Fetch Error (DolarApi): {str(e)}")
 
+    def _bna_overrides_usd(self):
+        """Return whether the BNA sell rate should replace standard USD."""
+        return (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("dolares_arg.bna_override_usd", "False")
+            == "True"
+        )
+
+    def _fetch_bna_usd_sell(self):
+        """Download BNA HTML and return the USD bill sell rate.
+
+        Tries /Personas first, then the homepage if parsing fails.
+        """
+        last_error = None
+        for url in (BNA_PERSONAS_URL, BNA_HOME_URL):
+            try:
+                response = requests.get(url, timeout=30, headers=BNA_REQUEST_HEADERS)
+                response.raise_for_status()
+                html = response.text or ""
+                _logger.info(
+                    "BNA Response: %s status %s (%s bytes)",
+                    url,
+                    response.status_code,
+                    len(html),
+                )
+                return extract_bna_usd_sell(html)
+            except Exception as err:
+                last_error = err
+                _logger.warning("BNA fetch/parse failed for %s: %s", url, err)
+        raise last_error or ValueError("BNA USD sell rate not available")
+
     def _fetch_bna_scraping(self, date_rate, company_id):
-        """Maneja el scraping de BNA y actualiza la moneda USD oficial"""
+        """Scrape BNA and store the sell rate on USN, or on USD if configured."""
         _logger.info("BNA: Iniciando Scraping...")
-        url = "https://www.bna.com.ar/Personas"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, "html.parser")
-            table = soup.find(id="billetes")
-            
-            if not table:
-                raise UserError("Estructura BNA cambió: No se encontró tabla 'billetes'")
-
-            val_venta = None
-            
-            # Búsqueda optimizada en la tabla
-            for tr in table.find_all("tr"):
-                tds = tr.find_all("td")
-                if len(tds) < 3:
-                    continue
-                
-                # Normalización agresiva de texto
-                curr_name = unicodedata.normalize("NFKD", tds[0].get_text(strip=True)).lower()
-                
-                if "dolar u.s.a" in curr_name:
-                    val_str = tds[2].get_text(strip=True).replace(",", ".")
-                    val_venta = float(val_str)
-                    break
-            
-            if val_venta and val_venta > 0:
-                _logger.info(f"BNA Success: Dolar Oficial detectado: {val_venta}")
-                # "USN" es nuestro trigger interno para decir "Actualiza el USD del sistema"
-                self._update_currency_rate("USN", date_rate, val_venta, company_id)
-            else:
-                raise UserError("No se pudo extraer el valor del Dolar U.S.A de la tabla BNA")
-
-        except Exception as e:
-            _logger.error(f"BNA Scraping Error: {str(e)}")
+            value = self._fetch_bna_usd_sell()
+            target = "USD" if self._bna_overrides_usd() else "USN"
+            _logger.info("BNA Success: venta %s → %s", value, target)
+            self._update_currency_rate(target, date_rate, value, company_id)
+        except Exception:
+            _logger.exception("BNA Scraping Error")
 
     def _update_currency_rate(self, currency_code, date_rate, rate_value, company_id):
         """
@@ -148,25 +154,21 @@ class ResCurrencyRate(models.Model):
         Odoo almacena la tasa inversa (1 / rate_value) si la base es ARS.
         """
         Currency = self.env["res.currency"]
-        
-        # Lógica especial para BNA -> USD Oficial
-        if currency_code == "USN":
-            currency = Currency.search([("name", "=", "USD")], limit=1)
+
+        currency = Currency.search([("name", "=", currency_code)], limit=1)
+        if currency_code == "USD":
             if not currency:
                 _logger.error("Error Crítico: Moneda USD no existe en el sistema.")
                 return
-        else:
-            # Buscar o crear monedas personalizadas
-            currency = Currency.search([("name", "=", currency_code)], limit=1)
-            if not currency:
-                currency = Currency.create({
-                    "name": currency_code,
-                    "symbol": currency_code,
-                    "full_name": CURRENCY_NAMES.get(currency_code, currency_code),
-                    "active": True,
-                    "position": "before", # Estético
-                })
-                _logger.info(f"Moneda creada: {currency_code}")
+        elif not currency:
+            currency = Currency.create({
+                "name": currency_code,
+                "symbol": currency_code,
+                "full_name": CURRENCY_NAMES.get(currency_code, currency_code),
+                "active": True,
+                "position": "before",
+            })
+            _logger.info("Moneda creada: %s", currency_code)
 
         # Cálculo de la tasa inversa para Odoo
         # Si 1 USD = 1000 ARS -> Odoo Rate = 0.001
