@@ -6,7 +6,7 @@
     "website": "https://onlyone.odoo.com/",
     "license": "AGPL-3",
     "category": "Accounting",
-    "version": "18.0.1.1.1",
+    "version": "18.0.2.0.0",
     "development_status": "Production/Stable",
     "application": False,
     "installable": True,

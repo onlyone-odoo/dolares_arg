@@ -16,6 +16,11 @@
                     <field name="enable_cripto" string="Cripto"/>
                     <field name="enable_tarjeta" string="Tarjeta"/>
                     <field name="enable_bna" string="BNA (Banco Nación, via scraping)"/>
+                    <field
+                        name="bna_override_usd"
+                        string="Pisar el USD oficial con la cotización BNA"
+                        invisible="not enable_bna"
+                    />
                 </group>
             </xpath>
         </field>

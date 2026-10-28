@@ -44,3 +44,9 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="dolares_arg.enable_bna",
         help="Fetch and update the BNA dollar rate via scraping.",
     )
+    bna_override_usd = fields.Boolean(
+        string="BNA Overrides USD",
+        config_parameter="dolares_arg.bna_override_usd",
+        help="Write the Banco Nación sell rate on the standard USD currency. "
+        "Leave it off to store the rate on the USN currency instead.",
+    )

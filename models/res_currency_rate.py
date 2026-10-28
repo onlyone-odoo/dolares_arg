@@ -2,9 +2,13 @@ from odoo import models
 import requests
 import logging
 from datetime import date
-from bs4 import BeautifulSoup
-from odoo.exceptions import UserError
-import unicodedata  # Para normalizar acentos
+
+from .bna_parser import (
+    BNA_HOME_URL,
+    BNA_PERSONAS_URL,
+    BNA_REQUEST_HEADERS,
+    extract_bna_usd_sell,
+)
 
 
 class CurrencyRate(models.Model):
@@ -80,73 +84,56 @@ class CurrencyRate(models.Model):
 
         # Process BNA if enabled
         if config.get_param("dolares_arg.enable_bna", "False") == "True":
-            self._logger.info(f"BNA Process Start: Starting BNA fetch for {today}")
+            self._logger.info("BNA Process Start: Starting BNA fetch for %s", today)
             try:
-                bna_url = "https://www.bna.com.ar/Personas"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-                }
-                self._logger.info(f"BNA Request: Sending request to {bna_url}")
-                page = requests.get(bna_url, timeout=10, headers=headers)
+                value = self._fetch_bna_usd_sell()
+                target = "USD" if self._bna_overrides_usd() else "USN"
                 self._logger.info(
-                    f"BNA Response: Received response with status {page.status_code}"
+                    "BNA Success: USD sell %s → updating %s", value, target
                 )
-                soup = BeautifulSoup(page.content, "html.parser")
+                self._update_rate(
+                    target, today, 1.0 / value, company_id=company_id
+                )
+            except Exception:
+                # Do not raise: a failure here must not roll back dolarapi rates.
+                self._logger.exception("BNA Exception: could not update the BNA rate")
+
+    def _bna_overrides_usd(self):
+        """Return whether the BNA sell rate should replace standard USD."""
+        return (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("dolares_arg.bna_override_usd", "False")
+            == "True"
+        )
+
+    def _fetch_bna_usd_sell(self):
+        """Download BNA HTML and return the USD bill sell rate.
+
+        Tries /Personas first, then the homepage if parsing fails.
+        """
+        last_error = None
+        for url in (BNA_PERSONAS_URL, BNA_HOME_URL):
+            try:
+                response = requests.get(url, timeout=30, headers=BNA_REQUEST_HEADERS)
+                response.raise_for_status()
+                html = response.text or ""
                 self._logger.info(
-                    "BNA Parsing: Soup created, searching for billetes table"
+                    "BNA Response: %s status %s (%s bytes)",
+                    url,
+                    response.status_code,
+                    len(html),
                 )
-                results = soup.find(id="billetes")
-                if not results:
-                    self._logger.error("BNA Error: BNA table not found")
-                    raise UserError("BNA table not found")
-                found = False
-                for tr in results.find_all("tr"):
-                    tds = tr.find_all("td")
-                    if len(tds) >= 3:
-                        row_name = (
-                            unicodedata.normalize("NFKD", tds[0].text.strip())
-                            .encode("ascii", "ignore")
-                            .decode("utf-8")
-                            .lower()
-                        )
-                        self._logger.debug(
-                            f"BNA Row Check: Found row with {len(tds)} columns: {row_name}"
-                        )
-                        if "dolar u.s.a" in row_name:
-                            self._logger.info("BNA Match: Found Dolar U.S.A row")
-                            value_str = tds[2].text.strip()  # Venta
-                            self._logger.info(
-                                f"BNA Value: Raw value string: {value_str}"
-                            )
-                            value = float(value_str.replace(",", "."))
-                            if value == 0:
-                                self._logger.error(
-                                    "BNA Error: Invalid BNA value (zero)"
-                                )
-                                raise ValueError("Invalid BNA value")
-                            self._logger.info(
-                                f"BNA Rate: Calculated rate: {1.0 / value}"
-                            )
-                            self._update_rate(
-                                "USN", today, 1.0 / value, company_id=company_id
-                            )
-                            found = True
-                            self._logger.info(
-                                f"BNA Success: Updated USN rate with value {value}"
-                            )
-                            break
-                if not found:
-                    self._logger.error(
-                        "BNA Error: Dolar U.S.A row not found in BNA table"
-                    )
-                    raise UserError("Dolar U.S.A row not found in BNA table")
-            except Exception as e:
-                self._logger.error(f"BNA Exception: {str(e)}")
+                return extract_bna_usd_sell(html)
+            except Exception as err:
+                last_error = err
+                self._logger.warning("BNA fetch/parse failed for %s: %s", url, err)
+        raise last_error or ValueError("BNA USD sell rate not available")
 
     def _update_rate(self, currency_code, date, rate, company_id=None):
         """Update or create currency rate for the given code and date."""
         self._logger.info(
-            f"Update Rate Start: Processing {currency_code} with rate {rate}"
+            "Update Rate Start: Processing %s with rate %s", currency_code, rate
         )
         currency = self.env["res.currency"].search(
             [("name", "=", currency_code)], limit=1
@@ -163,6 +150,9 @@ class CurrencyRate(models.Model):
             "USN": "Dolar Banco Nación (BNA)",
         }
         if not currency:
+            if currency_code == "USD":
+                self._logger.error("Standard currency USD not found in database")
+                return
             try:
                 currency = self.env["res.currency"].create(
                     {
